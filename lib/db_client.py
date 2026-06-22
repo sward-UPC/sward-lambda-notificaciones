@@ -3,19 +3,25 @@ import os
 from contextlib import contextmanager
 
 
-def _get_db_url() -> str:
-    url = os.environ.get("DATABASE_URL", "")
+def _get_db_url(prefix: str = "") -> str:
+    """Construye la URL de conexión. `prefix` permite una 2ª BD (ej. "CURSOS_").
+
+    Sin prefijo usa DATABASE_* / DB_SECRET_ARN (BD de usuarios, por defecto).
+    Con prefijo usa {PREFIX}DATABASE_* / {PREFIX}DB_SECRET_ARN.
+    """
+    url = os.environ.get(f"{prefix}DATABASE_URL", "")
     if url:
         return url
 
-    host = os.environ.get("DATABASE_HOST", "")
-    port = os.environ.get("DATABASE_PORT", "5432")
-    name = os.environ.get("DATABASE_NAME", "")
-    secret_arn = os.environ.get("DB_SECRET_ARN", "")
+    host = os.environ.get(f"{prefix}DATABASE_HOST", "")
+    port = os.environ.get(f"{prefix}DATABASE_PORT", "5432")
+    name = os.environ.get(f"{prefix}DATABASE_NAME", "")
+    secret_arn = os.environ.get(f"{prefix}DB_SECRET_ARN", "")
 
     if not (host and secret_arn):
         raise RuntimeError(
-            f"Variables de entorno DB incompletas: DATABASE_HOST={host!r}, DB_SECRET_ARN={secret_arn!r}"
+            f"Variables de entorno DB incompletas para prefijo {prefix!r}: "
+            f"host={host!r}, secret_arn={secret_arn!r}"
         )
 
     import boto3
@@ -30,7 +36,7 @@ def _get_db_url() -> str:
 
 
 @contextmanager
-def get_connection():
+def get_connection(prefix: str = ""):
     try:
         import psycopg2
     except ImportError:
@@ -38,7 +44,7 @@ def get_connection():
             "psycopg2 no disponible. Incluirlo en requirements.txt del Lambda."
         )
 
-    url = _get_db_url()
+    url = _get_db_url(prefix)
     conn = psycopg2.connect(url)
     try:
         yield conn

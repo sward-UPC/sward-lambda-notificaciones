@@ -137,10 +137,71 @@ def _crear_notificacion_usuario_registrado(payload: dict, event_id: str) -> bool
     return bool(admin_ids)
 
 
+def _docente_del_curso(curso_id: str) -> str | None:
+    """Resuelve el docente_id de un curso desde cursos_recursos_db."""
+    with get_connection("CURSOS_") as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT docente_id FROM courses WHERE id = %s", (curso_id,))
+            row = cur.fetchone()
+            return str(row[0]) if row and row[0] else None
+
+
+def _crear_notificacion_alerta(payload: dict, event_id: str) -> bool:
+    """Notifica al DOCENTE del curso que un alumno entró en riesgo.
+    Resuelve el docente vía cursos_db; idempotente por event_id."""
+    curso_id = payload.get("curso_id")
+    if not curso_id:
+        logger.warning("AlertaCreada sin curso_id, se omite | payload=%s", payload)
+        return False
+
+    docente_id = _docente_del_curso(curso_id)
+    if not docente_id:
+        logger.info("Curso sin docente asignado, se omite | curso=%s", curso_id)
+        return False
+
+    nivel = payload.get("nivel_riesgo") or "alto"
+    mensaje = (payload.get("mensaje") or "").strip()
+    notif_payload = {
+        "estudiante_id": payload.get("estudiante_id"),
+        "curso_id": curso_id,
+        "nivel_riesgo": nivel,
+    }
+
+    import psycopg2.extras
+
+    with get_connection() as conn:
+        if ya_procesado(conn, event_id):
+            conn.commit()
+            logger.info("Evento ya procesado, se omite | event_id=%s", event_id)
+            return False
+        with conn.cursor() as cur:
+            cur.execute(
+                _INSERT_NOTIF,
+                (
+                    str(uuid.uuid4()),
+                    docente_id,
+                    "alerta",
+                    f"Alumno en riesgo {nivel}",
+                    mensaje,
+                    psycopg2.extras.Json(notif_payload),
+                    datetime.now(timezone.utc),
+                ),
+            )
+        conn.commit()
+    logger.info(
+        "Notificación de alerta creada | docente=%s | curso=%s | event_id=%s",
+        docente_id,
+        curso_id,
+        event_id,
+    )
+    return True
+
+
 # Despacho por detail-type del evento.
 _HANDLERS = {
     "sward.trazabilidad.FeedbackRegistrado": _crear_notificacion_feedback,
     "sward.usuarios.UsuarioRegistrado": _crear_notificacion_usuario_registrado,
+    "sward.alertas.AlertaCreada": _crear_notificacion_alerta,
 }
 
 
