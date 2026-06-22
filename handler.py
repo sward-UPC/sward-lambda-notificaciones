@@ -48,7 +48,9 @@ def _crear_notificacion_feedback(payload: dict, event_id: str) -> bool:
     Returns True si insertó, False si ya estaba procesado o faltan datos."""
     estudiante_id = payload.get("estudiante_id")
     if not estudiante_id:
-        logger.warning("FeedbackRegistrado sin estudiante_id, se omite | payload=%s", payload)
+        logger.warning(
+            "FeedbackRegistrado sin estudiante_id, se omite | payload=%s", payload
+        )
         return False
 
     mensaje = (payload.get("mensaje") or "").strip()
@@ -80,7 +82,11 @@ def _crear_notificacion_feedback(payload: dict, event_id: str) -> bool:
                 ),
             )
         conn.commit()
-    logger.info("Notificación de feedback creada | estudiante=%s | event_id=%s", estudiante_id, event_id)
+    logger.info(
+        "Notificación de feedback creada | estudiante=%s | event_id=%s",
+        estudiante_id,
+        event_id,
+    )
     return True
 
 
@@ -99,7 +105,11 @@ def handle_sqs_message(event: dict, context) -> dict:
             payload = _payload_de(body)
             event_id = _event_id_de(body, payload)
             # detail-type: viene en el envelope; si no, inferimos por contenido.
-            detail_type = body.get("event_type") or body.get("detail_type") or payload.get("event_type")
+            detail_type = (
+                body.get("event_type")
+                or body.get("detail_type")
+                or payload.get("event_type")
+            )
             handler = _HANDLERS.get(detail_type, _crear_notificacion_feedback)
             if handler(payload, event_id):
                 creadas += 1
