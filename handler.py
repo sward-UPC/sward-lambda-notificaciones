@@ -90,9 +90,57 @@ def _crear_notificacion_feedback(payload: dict, event_id: str) -> bool:
     return True
 
 
+_SELECT_ADMINS = """
+SELECT ur.user_id
+FROM user_roles ur
+JOIN roles r ON r.id = ur.role_id
+WHERE r.nombre = 'administrador'
+"""
+
+
+def _crear_notificacion_usuario_registrado(payload: dict, event_id: str) -> bool:
+    """Notifica a TODOS los administradores que se registró un usuario nuevo.
+    Idempotente por event_id (una sola vez aunque haya varios admins)."""
+    correo = payload.get("correo") or "Un usuario"
+    rol = payload.get("rol") or "usuario"
+    notif_payload = {"usuario_id": payload.get("usuario_id"), "rol": rol}
+
+    import psycopg2.extras
+
+    with get_connection() as conn:
+        if ya_procesado(conn, event_id):
+            conn.commit()
+            logger.info("Evento ya procesado, se omite | event_id=%s", event_id)
+            return False
+        with conn.cursor() as cur:
+            cur.execute(_SELECT_ADMINS)
+            admin_ids = [row[0] for row in cur.fetchall()]
+            for admin_id in admin_ids:
+                cur.execute(
+                    _INSERT_NOTIF,
+                    (
+                        str(uuid.uuid4()),
+                        str(admin_id),
+                        "sistema",
+                        "Nuevo usuario registrado",
+                        f"{correo} se registró como {rol}.",
+                        psycopg2.extras.Json(notif_payload),
+                        datetime.now(timezone.utc),
+                    ),
+                )
+        conn.commit()
+    logger.info(
+        "Notificaciones de alta creadas | admins=%d | event_id=%s",
+        len(admin_ids),
+        event_id,
+    )
+    return bool(admin_ids)
+
+
 # Despacho por detail-type del evento.
 _HANDLERS = {
     "sward.trazabilidad.FeedbackRegistrado": _crear_notificacion_feedback,
+    "sward.usuarios.UsuarioRegistrado": _crear_notificacion_usuario_registrado,
 }
 
 
@@ -110,7 +158,12 @@ def handle_sqs_message(event: dict, context) -> dict:
                 or body.get("detail_type")
                 or payload.get("event_type")
             )
-            handler = _HANDLERS.get(detail_type, _crear_notificacion_feedback)
+            handler = _HANDLERS.get(detail_type)
+            if handler is None:
+                logger.info(
+                    "Evento sin handler, se omite | detail_type=%s", detail_type
+                )
+                continue
             if handler(payload, event_id):
                 creadas += 1
         except Exception:
