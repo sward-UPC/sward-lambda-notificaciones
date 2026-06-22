@@ -1,0 +1,16 @@
+name: Build & Push to GHCR
+
+on:
+  push:
+    branches:
+      - deploy
+
+jobs:
+  build-push:
+    uses: sward-UPC/.github/.github/workflows/build-push-ghcr.yml@main
+    with:
+      image_name: sward-lambda-notificaciones
+      service_type: lambda
+      aws_service_name: sward-lambda-notificaciones
+      needs_shared: false
+    secrets: inherit
