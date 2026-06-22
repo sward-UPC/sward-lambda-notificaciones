@@ -197,11 +197,64 @@ def _crear_notificacion_alerta(payload: dict, event_id: str) -> bool:
     return True
 
 
+def _crear_notificacion_logro(payload: dict, event_id: str) -> bool:
+    """Felicita al alumno por un hito (racha o recursos). Idempotente por
+    event_id determinístico (un hito notifica una sola vez)."""
+    estudiante_id = payload.get("estudiante_id")
+    if not estudiante_id:
+        logger.warning(
+            "LogroDesbloqueado sin estudiante_id, se omite | payload=%s", payload
+        )
+        return False
+
+    tipo = payload.get("tipo") or "racha"
+    valor = payload.get("valor") or 0
+    if tipo == "racha":
+        titulo = "¡Racha desbloqueada!"
+        mensaje = f"Llevas {valor} días seguidos estudiando. ¡Sigue así!"
+    else:
+        titulo = "¡Logro desbloqueado!"
+        mensaje = f"Completaste {valor} recursos. ¡Gran trabajo!"
+
+    notif_payload = {"logro": tipo, "valor": valor}
+
+    import psycopg2.extras
+
+    with get_connection() as conn:
+        if ya_procesado(conn, event_id):
+            conn.commit()
+            logger.info("Evento ya procesado, se omite | event_id=%s", event_id)
+            return False
+        with conn.cursor() as cur:
+            cur.execute(
+                _INSERT_NOTIF,
+                (
+                    str(uuid.uuid4()),
+                    str(estudiante_id),
+                    "logro",
+                    titulo,
+                    mensaje,
+                    psycopg2.extras.Json(notif_payload),
+                    datetime.now(timezone.utc),
+                ),
+            )
+        conn.commit()
+    logger.info(
+        "Notificación de logro creada | estudiante=%s | tipo=%s | valor=%s | event_id=%s",
+        estudiante_id,
+        tipo,
+        valor,
+        event_id,
+    )
+    return True
+
+
 # Despacho por detail-type del evento.
 _HANDLERS = {
     "sward.trazabilidad.FeedbackRegistrado": _crear_notificacion_feedback,
     "sward.usuarios.UsuarioRegistrado": _crear_notificacion_usuario_registrado,
     "sward.alertas.AlertaCreada": _crear_notificacion_alerta,
+    "sward.trazabilidad.LogroDesbloqueado": _crear_notificacion_logro,
 }
 
 
