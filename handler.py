@@ -221,6 +221,19 @@ def _crear_notificacion_logro(payload: dict, event_id: str) -> bool:
     import psycopg2.extras
 
     with get_connection() as conn:
+        # Respeta la preferencia del alumno: si apagó las notis de logros, no crea.
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT notif_logros FROM users WHERE id = %s", (str(estudiante_id),)
+            )
+            row = cur.fetchone()
+        if row is not None and row[0] is False:
+            conn.commit()
+            logger.info(
+                "Alumno con logros desactivados, se omite | estudiante=%s",
+                estudiante_id,
+            )
+            return False
         if ya_procesado(conn, event_id):
             conn.commit()
             logger.info("Evento ya procesado, se omite | event_id=%s", event_id)
